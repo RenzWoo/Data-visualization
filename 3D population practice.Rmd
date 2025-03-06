@@ -1,0 +1,59 @@
+---
+title: |
+  | DS221
+  | Data Visualization and Storytelling
+subtitle: |
+  | --------------------------------------------------
+  | PORTFOLIO 1
+  | --------------------------------------------------
+author: "Renz"
+date: "2025-03-06"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+print("Hello World")
+```
+
+### Install packages
+```{r}
+packages <- c("sf", "tmap", "mapview", "stars", "rayshader", 
+              "MetBrewer", "rayrender", "extrafont", "magick")
+
+new_packages <- packages[!(packages %in% installed.packages()[,"Package"])]
+
+if (length(new_packages) > 0) {
+  install.packages(new_packages, dependencies=TRUE)
+}
+```
+
+### Load Packages
+```{r}
+options(rgl.useNULL=FALSE)
+require(tidyverse)
+require(sf)
+require(ggplot2)
+require(mapview)
+require(stars)
+require(rayshader)
+require(MetBrewer)
+require(colorspace)
+require(rayrender)
+require(magick)
+require(extrafont)
+```
+
+### Load and transform data
+``` {r}
+
+ph_admin <- st_read("data/kontur_boundaries_PH_20230628.gpkg") %>% st_transform(3106)
+```
+
+```{r}
+getwd()
+```
+
