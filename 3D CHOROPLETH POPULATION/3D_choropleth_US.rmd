@@ -1,0 +1,135 @@
+---
+title: |
+  | DS221
+  | Data Visualization and Storytelling
+subtitle: |
+  | --------------------------------------------------
+  | PORTFOLIO 1
+  | --------------------------------------------------
+output: pdf_document
+header-includes:
+  - "\\usepackage{titling}"
+  - "\\pretitle{\\begin{center}\\LARGE\\includegraphics[width=4cm]{logo.jpg}\\\\[\\bigskipamount]}"
+  - "\\posttitle{\\end{center}}"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+``` {r}
+library(sf) 
+library(dplyr)   
+library(ggplot2) 
+library("readr")
+library(stringr)
+library(raster)
+library(stars)
+library(rayshader)
+```
+# Load population file
+```{r}
+chronic_data <- read_csv("3D POPULATION/DiabetesAtlas_CountyData.csv")
+```
+
+``` {r}
+us_gpkg_path <- "3D POPULATION/National Sub-State Geography.gpkg" 
+us_data <- st_layers(us_gpkg_path) 
+print(us_data)
+```
+
+```{r}
+print(us_data)
+```
+
+# Choose Layer (County)
+```{r}
+us_boundaries <- st_read(us_gpkg_path, layer = "County")
+```
+
+```{r}
+glimpse(us_boundaries) 
+head(us_boundaries) 
+```
+
+# Filter out Alaska and other states not in main land
+```{r}
+us_mainland <- us_boundaries %>%
+  filter(!substr(GEOID, 1, 2) %in% c("02", "15", "72", "66", "60", "69", "78"))
+```
+
+# PLOT 2D MAP
+```{r}
+ggplot(us_mainland) +
+  geom_sf(fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(title = "Mainland U.S. County Boundaries",
+       caption = "Source: National Sub-State Geography GeoPackage")
+```
+
+## Merge chronic_data and us_boundaries data
+```{r}
+us_boundaries <- us_boundaries %>%
+  mutate(GEOID = as.character(GEOID))
+
+chronic_data <- chronic_data %>%
+  mutate(CountyFIPS = str_pad(CountyFIPS, width = 5, side = "left", pad = "0"))
+```
+
+```{r}
+chronic_data <- chronic_data %>%
+  mutate(CountyFIPS = str_trim(CountyFIPS))
+```
+
+```{r}
+merged_data <- us_boundaries %>%
+  left_join(chronic_data, by = c("GEOID" = "CountyFIPS")) %>%
+  filter(!str_sub(GEOID, 1, 2) %in% c("02", "15", "72", "66", "60", "69", "78"))
+```
+
+```{r}
+merged_data %>%
+  filter(is.na(Percentage)) %>%
+  select(GEOID, County, State)
+```
+
+```{r}
+ggplot(merged_data) +
+  geom_sf(aes(fill = as.numeric(Percentage)), color = "skyblue", size = 0.1) +
+  scale_fill_viridis_c(name = "Diabetes (%)", na.value = "grey50") +
+  theme_minimal() +
+  labs(title = "Diabetes Prevalence by County in the U.S.",
+       caption = "Source: Your Data Source")
+```
+
+## PLOT 3D CHOROPLETH MAP
+```{r}
+diabetes_map <- ggplot(merged_data) +
+  geom_sf(aes(fill = as.numeric(Percentage)), color = NA) +  
+  scale_fill_viridis_c(name = "Diabetes (%)", 
+                       na.value = "grey50", 
+                       option = "plasma") + 
+  theme_void() +  
+  theme(legend.position = "right") 
+
+print(diabetes_map)
+```
+
+```{r}
+plot_gg(diabetes_map, 
+        multicore = TRUE, 
+        width = 7,         
+        height = 4,       
+        scale = 300,      
+        windowsize = c(1200, 800), 
+        zoom = 0.55,       
+        phi = 30,          
+        theta = 30)    
+```
+
+```{r}
+render_shadow(clear = TRUE)
+render_snapshot(filename = "diabetes_3d_map.png")
+```
+
+```{r}
+plot_gg(diabetes_map, scale = 150)
+```
