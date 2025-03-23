@@ -5,15 +5,9 @@ title: |
 subtitle: |
   | --------------------------------------------------
   | PORTFOLIO 1
+  | Members: ALASAN, MACALAM, MALLARI, TION, VELEZ
   | --------------------------------------------------
 output: pdf_document
-header-includes:
-  - "\\usepackage{titling}"
-  - "\\pretitle{\\begin{center}\\LARGE\\includegraphics[width=4cm]{logo.jpg}\\\\[\\bigskipamount]}"
-  - "\\posttitle{\\end{center}}"
-editor_options: 
-  markdown: 
-    wrap: 72
 ---
 ``` {r}
 library(sf) 
@@ -24,20 +18,15 @@ library(stringr)
 library(raster)
 library(stars)
 library(rayshader)
+library(MetBrewer) 
+library(gridExtra)
 ```
-# Load population file
+# Load data
 ```{r}
-chronic_data <- read_csv("3D POPULATION/DiabetesAtlas_CountyData.csv")
-```
-
-``` {r}
+chronic_data <- read_csv("3D POPULATION/Complete_Merged_DiabetesAtlas_CountyData.csv")
 us_gpkg_path <- "3D POPULATION/National Sub-State Geography.gpkg" 
-us_data <- st_layers(us_gpkg_path) 
-print(us_data)
-```
-
-```{r}
-print(us_data)
+print(st_layers(us_gpkg_path) )
+print(colnames(chronic_data))
 ```
 
 # Choose Layer (County)
@@ -45,24 +34,10 @@ print(us_data)
 us_boundaries <- st_read(us_gpkg_path, layer = "County")
 ```
 
-```{r}
-glimpse(us_boundaries) 
-head(us_boundaries) 
-```
-
-# Filter out Alaska and other states not in main land
-```{r}
+# Filter out Dataset
+```{r} 
 us_mainland <- us_boundaries %>%
   filter(!substr(GEOID, 1, 2) %in% c("02", "15", "72", "66", "60", "69", "78"))
-```
-
-# PLOT 2D MAP
-```{r}
-ggplot(us_mainland) +
-  geom_sf(fill = "skyblue", color = "black") +
-  theme_minimal() +
-  labs(title = "Mainland U.S. County Boundaries",
-       caption = "Source: National Sub-State Geography GeoPackage")
 ```
 
 ## Merge chronic_data and us_boundaries data
@@ -72,9 +47,7 @@ us_boundaries <- us_boundaries %>%
 
 chronic_data <- chronic_data %>%
   mutate(CountyFIPS = str_pad(CountyFIPS, width = 5, side = "left", pad = "0"))
-```
 
-```{r}
 chronic_data <- chronic_data %>%
   mutate(CountyFIPS = str_trim(CountyFIPS))
 ```
@@ -83,53 +56,158 @@ chronic_data <- chronic_data %>%
 merged_data <- us_boundaries %>%
   left_join(chronic_data, by = c("GEOID" = "CountyFIPS")) %>%
   filter(!str_sub(GEOID, 1, 2) %in% c("02", "15", "72", "66", "60", "69", "78"))
+
+
 ```
 
+# PLOT 2D MAP 
 ```{r}
-merged_data %>%
-  filter(is.na(Percentage)) %>%
-  select(GEOID, County, State)
-```
+c <- "Isfahan1"
+color1 <- met.brewer(c)
+set.seed(123) # For reproducibility
 
-```{r}
-ggplot(merged_data) +
-  geom_sf(aes(fill = as.numeric(Percentage)), color = "skyblue", size = 0.1) +
-  scale_fill_viridis_c(name = "Diabetes (%)", na.value = "grey50") +
-  theme_minimal() +
-  labs(title = "Diabetes Prevalence by County in the U.S.",
-       caption = "Source: Your Data Source")
-```
+# First, create a version of the data with random heights
+merged_data_random <- merged_data
+merged_data_random$random_height <- runif(nrow(merged_data_random), 1, 10)
 
-## PLOT 3D CHOROPLETH MAP
-```{r}
+# A more reliable approach: create a raster from the random heights
+# This will use the actual geometry to create heightmap data
+
+# First, the original diabetes map for colors
 diabetes_map <- ggplot(merged_data) +
-  geom_sf(aes(fill = as.numeric(Percentage)), color = NA) +  
-  scale_fill_viridis_c(name = "Diabetes (%)", 
-                       na.value = "grey50", 
-                       option = "plasma") + 
-  theme_void() +  
-  theme(legend.position = "right") 
-
-print(diabetes_map)
+  geom_sf(aes(fill = as.numeric(Percentage)), color = "grey20") +
+  scale_fill_gradientn(colors = rev(color1),
+                       name = "Diabetes (%)",
+                       na.value = "grey50",
+                       guide = guide_colorbar(barwidth = 3, barheight = 9)) +
+  theme_minimal() +
+  labs(title = "Diabetes Distribution with Random Heights",
+       caption = "Source: CDC Diabetes Atlas | Visualization created with R") +
+  theme(legend.position = "right",
+        text = element_text(size = 14),        
+        title = element_text(size = 16, face = "bold"), 
+        axis.text = element_blank(),           
+        axis.ticks = element_blank(),         
+        panel.grid = element_blank(),
+        legend.key = element_rect(fill = "white", color = "black"),
+        panel.background = element_rect(fill = "transparent", color=NA),
+        plot.background = element_rect(fill = "transparent", color = NA))
+diabetes_map
 ```
 
 ```{r}
-plot_gg(diabetes_map, 
-        multicore = TRUE, 
-        width = 7,         
-        height = 4,       
-        scale = 300,      
-        windowsize = c(1200, 800), 
-        zoom = 0.55,       
-        phi = 30,          
-        theta = 30)    
+bbox <- st_bbox(merged_data_random)
+rast_template <- raster(xmn = bbox[1], xmx = bbox[3], 
+                        ymn = bbox[2], ymx = bbox[4], 
+                        resolution = 0.1)  # Adjust resolution as needed
+
+# Create raster of random heights
+random_heights_raster <- fasterize::fasterize(
+  st_as_sf(merged_data_random), 
+  rast_template,
+  field = "random_height"
+)
 ```
 
 ```{r}
-render_shadow(clear = TRUE)
-render_snapshot(filename = "diabetes_3d_map.png")
+plot_gg(random_height_map,
+        multicore = TRUE,
+        width = 9,
+        height = 6,
+        scale = 250,
+        shadow = TRUE,                  
+        shadow_intensity = 0.6,
+        sunangle = 225,         
+        windowsize = c(1600, 1200),  
+        zoom = 0.57,
+        phi = 30,
+        theta = -51,
+        background = "white", 
+        shadowcolor = "gray30"
+)
+```
+
+# PLOT 3D CHOROPLETH MAP
+## Convert 'Number' to raster and matrix
+```{r}
+plot_gg(random_height_map,
+        multicore = TRUE,
+        width = 9,
+        height = 6,
+        scale = 250,
+        shadow = TRUE,                  
+        shadow_intensity = 0.6,     
+        sunangle = 225,         
+        windowsize = c(1600, 1200),  
+        zoom = 0.57,
+        phi = 30,
+        theta = -51,
+        background = "white", 
+        shadowcolor = "gray30"
+)
+
 ```
 
 ```{r}
-plot_gg(diabetes_map, scale = 150)
+plot_gg(
+  diabetes_map,
+  multicore = TRUE,
+  width = 4962 / 300,   # Convert A3 width to inches
+  height = 3507 / 300,  # Convert A3 height to inches
+  scale = 180,
+  shadow = TRUE,
+  shadow_intensity = 0.6,
+  sunangle = 125,
+  windowsize = c(4962, 3507),
+  zoom = 0.25,
+  phi = 47,
+  theta = -120,
+  background = "white",
+  shadowcolor = "gray30"
+)
 ```
+
+```{r}
+number_raster <- rasterize(
+  merged_data,
+  raster(extent(merged_data), res = 0.1),
+  field = "Number"  # Use 'Number' for height
+)
+number_matrix <- raster_to_matrix(number_raster)
+```
+
+```{r}
+plot_gg(
+  diabetes_map,
+  multicore = TRUE,
+  width = 4962 / 300,   # Convert pixel width to inches for rendering
+  height = 3507 / 300, # Convert pixel height to inches for rendering
+  scale = 180,
+  shadow = TRUE,
+  shadow_intensity = 0.6,
+  sunangle = 125,
+  windowsize = c(a3_width, a3_height), # Match window size to A3 dimensions
+  zoom = 0.2486894,
+  phi =   47.2767956,
+  theta = -120.2372046,
+  background = "white",
+  shadowcolor = "gray30",
+  height_aes = number_matrix
+)
+```
+
+```{r}
+render_camera()
+```
+
+```{r}
+render_highquality(filename = "USA_diabetes_3d_map_4.png",
+                   parallel = TRUE, 
+                   samples = 300,        
+                   width = 5000,      
+                   height = 3500)      
+
+rgl::close3d()
+```
+
+
