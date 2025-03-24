@@ -1,1 +1,1 @@
-Repo for data visualization projects
+- Repo for data visualization projects
