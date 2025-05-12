@@ -1,0 +1,473 @@
+---
+title: "Active Volcanoes in the Philippines: 25 Visualizations"
+author: "Renzo Angelo A. Alasan"
+date: "2025-05-10"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE, error=FALSE, console=FALSE)
+if (!require("treemapify")) install.packages("treemapify")
+library(treemapify)
+```
+
+# Libraries
+```{r, echo=TRUE}
+library(tidyverse)
+library(ggmap)
+library(maps)
+library(viridis)
+library(leaflet)
+library(plotly)
+library(dplyr)
+library(ggplot2)
+```
+
+# Load Dataset
+This dataset lists 26 active volcanoes in the Philippines, including their names, elevations (in meters and feet), coordinates, provinces, and recorded eruption counts. It highlights volcanic activity levels, with eruption numbers ranging from 0 (dormant) to 50 (Mayon, the most active). The data helps analyze geographic distribution, with volcanoes spread across provinces like Albay, Batangas, and Cagayan.
+```{r, echo=TRUE, results='hide'}
+volcano_data <- read_csv("ActiveVolcanoPH.csv", locale = locale(encoding = "Latin1")) %>%
+  rename(Volcano = Name)
+
+volcano_data
+```
+
+# 25 Visualizations On Active Volcanoes In The Philippines
+
+## 1. Bar Chart: Volcanoes by Number of Eruptions
+```{r}
+ggplot(volcano_data, aes(x = reorder(Volcano, Eruptions), y = Eruptions)) +
+  geom_col(fill = "firebrick") +
+  coord_flip() +
+  labs(title = "Number of Eruptions per Volcano",
+       x = "Volcano Name",
+       y = "Number of Eruptions") +
+  theme_minimal()
+```
+
+## 2. Dot Plot with Error Bars
+```{r}
+volcano_data %>%
+  group_by(Province) %>%
+  summarise(avg_eruptions = mean(Eruptions, na.rm = TRUE),
+            sd = sd(Eruptions, na.rm = TRUE)) %>%
+  ggplot(aes(x = avg_eruptions, y = reorder(Province, avg_eruptions))) +
+  geom_point(size = 3, color = "darkred") +
+  geom_errorbarh(aes(xmin = avg_eruptions-sd, xmax = avg_eruptions+sd), 
+                 height = 0.2, color = "darkred") +
+  labs(title = "Average Eruptions per Province with Standard Deviation",
+       x = "Average Eruptions", y = "Province") +
+  theme_minimal()
+```
+
+## 3. Bubble Chart (Size by Eruptions)
+```{r,fig.width=9, fig.height=7}
+ggplot(volcano_data, aes(x = m, y = ft)) +
+  geom_point(aes(size = Eruptions), color = "darkred", alpha = 0.7) +
+  scale_size(range = c(3, 12)) +
+  labs(title = "Elevation Comparison (Meters vs Feet)",
+       subtitle = "Bubble size represents eruption count",
+       x = "Meters", y = "Feet") +
+  theme_minimal()
+```
+
+## 4. Static Scatter Plot
+```{r, fig.width = 10}
+ggplot(volcano_data, aes(x = m, y = ft, color = Eruptions)) +
+  geom_point(size = 3, alpha = 0.8) +
+  scale_color_gradient(low = "lightcoral", high = "darkred") +
+  labs(title = "Static 2D View: Elevation (m vs ft) Colored by Eruptions",
+       x = "Meters", y = "Feet", color = "Eruptions") +
+  theme_minimal()
+```
+
+## 5.Parallel Coordinates Plot
+```{r}
+library(GGally)
+
+# Clean column names
+colnames(volcano_data) <- trimws(colnames(volcano_data))
+
+# Convert to numeric
+volcano_data <- volcano_data %>%
+  mutate(
+    m = as.numeric(m),
+    ft = as.numeric(ft),
+    Eruptions = as.numeric(Eruptions)
+  )
+
+# Filter and prepare data
+pc_data <- volcano_data %>%
+  filter(!is.na(m) & !is.na(ft) & !is.na(Eruptions) & !is.na(Volcano)) %>%
+  dplyr::select(Volcano, m, ft, Eruptions)
+
+# Plot
+ggparcoord(data = pc_data,
+           columns = 2:4,
+           groupColumn = 1,
+           alphaLines = 0.3) +
+  scale_color_manual(values = rep("darkred", nrow(pc_data))) +
+  labs(title = "Parallel Coordinates Plot of Volcano Metrics") +
+  theme_minimal()
+```
+
+## 6. Beeswarm Plot (Eruption Distribution)
+```{r}
+library(ggbeeswarm)
+ggplot(volcano_data, aes(x = "", y = Eruptions)) +
+  geom_quasirandom(color = "darkred", size = 3, alpha = 0.7) +
+  labs(title = "Distribution of Eruption Counts",
+       x = "", y = "Number of Eruptions") +
+  theme_minimal()
+```
+
+## 7. Donut chart
+```{r}
+library(ggplot2)
+library(dplyr)
+
+donut_data <- volcano_data %>%
+  mutate(Eruptions = as.numeric(Eruptions)) %>%
+  filter(!is.na(Eruptions)) %>%
+  group_by(Province) %>%
+  summarise(total_eruptions = sum(Eruptions)) %>%
+  arrange(desc(total_eruptions)) %>%
+  mutate(
+    fraction = total_eruptions / sum(total_eruptions),
+    ymax = cumsum(fraction),
+    ymin = c(0, head(ymax, n = -1)),
+    label_pos = (ymax + ymin) / 2
+  )
+
+ggplot(donut_data, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = Province)) +
+  geom_rect(color = "white") +
+  coord_polar(theta = "y") +
+  xlim(c(2, 4)) +
+  scale_fill_manual(values = colorRampPalette(c("lightcoral", "darkred"))(nrow(donut_data))) +
+  geom_text(
+    aes(
+      x = 3.5,
+      y = label_pos,
+      label = paste0(Province, "\n", round(fraction * 100, 1), "%")
+    ),
+    color = "white",
+    size = 3
+  ) +
+  theme_void() +
+  labs(title = "Volcanic Eruptions by Province (Donut Chart)")
+```
+
+## 8. Alluvial Diagram (Province Relationships)
+```{r, fig.width=10, fig.height=7}
+library(ggalluvial)
+volcano_data %>%
+  count(Province, Eruptions) %>%
+  ggplot(aes(y = n, axis1 = Province, axis2 = Eruptions)) +
+  geom_alluvium(aes(fill = Eruptions)) +
+  scale_fill_gradient(low = "lightcoral", high = "darkred") +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  labs(title = "Relationship Between Provinces and Eruption Counts") +
+  theme_minimal()
+```
+
+## 9. Hexbin Plot (Elevation vs Eruptions)
+```{r, fig.width=10}
+ggplot(volcano_data, aes(x = m, y = Eruptions)) +
+  geom_hex(bins = 10) +
+  scale_fill_distiller(
+    palette = "Reds",
+    direction = 1,     
+    name = "Density"
+  ) +
+  labs(title = "Density of Elevation vs Eruptions") +
+  theme_minimal()
+```
+
+## 10. Line chart
+```{r}
+library(ggplot2)
+library(dplyr)
+
+set.seed(123)
+eruption_ts <- volcano_data %>%
+  mutate(
+    year = sample(1900:2020, nrow(volcano_data), replace = TRUE),
+    Eruptions = as.numeric(Eruptions)
+  ) %>%
+  group_by(year) %>%
+  summarise(total_eruptions = sum(Eruptions, na.rm = TRUE))
+
+# Create static line chart
+ggplot(eruption_ts, aes(x = year, y = total_eruptions)) +
+  geom_line(color = "darkred", linewidth = 0.5) +
+  labs(
+    title = "Simulated Volcanic Activity Over Time",
+    subtitle = "1900-2020 (Randomly Assigned Years)",
+    x = "Year",
+    y = "Total Eruptions"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "darkred", face = "bold"),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank()
+  ) +
+  scale_x_continuous(breaks = seq(1900, 2020, by = 20))
+```
+
+## 11.Lollipop Chart (#56)
+```{r}
+volcano_data %>%
+  top_n(10, m) %>%
+  ggplot(aes(x = reorder(Volcano, m), y = m)) +
+  geom_segment(aes(xend = Volcano, yend = 0), color = "gray") +
+  geom_point(color = "darkred", size = 4) +
+  coord_flip() +
+  labs(title = "Top 10 Tallest Volcanoes (Lollipop)",
+       y = "Elevation (meters)") +
+  theme_minimal()
+```
+
+## 12. Waffle Chart 
+```{r, }
+library(waffle)
+
+colnames(volcano_data) <- trimws(colnames(volcano_data))
+
+eruption_counts <- volcano_data %>%
+  count(Province, name = "count") %>%
+  arrange(desc(count))
+
+province_vector <- setNames(eruption_counts$count, eruption_counts$Province)
+dark_red_gradient <- colorRampPalette(c("#4d0000", "#800000", "#b30000", "#e60000"))(length(province_vector))
+
+waffle(parts = province_vector,
+       rows = 5,
+       colors = dark_red_gradient,
+       title = "Volcano Distribution by Province (Waffle Chart)") +
+  theme(plot.title = element_text(margin = margin(b = 20)))
+```
+
+## 13. Bump Chart
+```{r, fig.width=10, fig.height=5}
+library(ggplot2)
+library(ggbump)
+
+colnames(volcano_data) <- trimws(colnames(volcano_data))
+volcano_data <- volcano_data %>%
+  mutate(Eruptions = as.numeric(Eruptions)) %>%
+  filter(!is.na(Eruptions), !is.na(Volcano)) %>%
+  mutate(rank = rank(-Eruptions)) %>%
+  arrange(rank)
+
+dark_reds <- colorRampPalette(c("#4d0000", "#800000", "#b30000", "#e60000"))(nrow(volcano_data))
+
+volcano_data$color <- dark_reds
+
+ggplot(volcano_data, aes(x = rank, y = Eruptions, group = Volcano)) +
+  geom_bump(aes(color = Volcano), size = 2, show.legend = FALSE) +
+  geom_point(aes(color = Volcano), size = 4) +
+  geom_text(aes(label = Volcano), hjust = -0.2, size = 3) +
+  scale_color_manual(values = setNames(volcano_data$color, volcano_data$Volcano)) +
+  labs(title = "Bump Chart of Volcano Rankings by Eruptions") +
+  theme_minimal()
+```
+
+## 14. Treemap
+```{r, fig.height=5, fig.width=7}
+tree_data <- volcano_data  # rename for consistency with ggplot line
+
+ggplot(tree_data, aes(area = Eruptions, fill = Province, label = Province)) +
+  geom_treemap() +
+  geom_treemap_text(colour = "white", place = "centre") +
+  scale_fill_manual(values = colorRampPalette(c("lightcoral", "darkred"))(n_distinct(tree_data$Province))) +
+  labs(title = "Volcanic Eruptions by Province (Treemap)") +
+  theme(legend.position = "none")
+```
+
+## 15. Circular Barplot
+```{r, fig.width=10}
+library(dplyr)
+library(ggplot2)
+
+# Clean and prepare data
+colnames(volcano_data) <- trimws(colnames(volcano_data))
+plot_data <- volcano_data %>%
+  mutate(Eruptions = as.numeric(Eruptions)) %>%
+  filter(!is.na(Eruptions)) %>%
+  top_n(15, Eruptions)
+
+ggplot(plot_data, aes(x = reorder(Volcano, Eruptions), y = Eruptions)) +
+  geom_col(aes(fill = Eruptions), show.legend = TRUE) +
+  scale_fill_gradient(low = "#4d0000", high = "#e60000") +  # dark red gradient
+  coord_polar() +
+  labs(title = "Circular Barplot of Top 15 Volcanoes") +
+  theme_minimal(base_family = "sans") +
+  theme()
+```
+
+## 16. Connected Scatterplot
+```{r, fig.weight=3, fig.height=6}
+volcano_data %>%
+  arrange(m) %>%
+  ggplot(aes(x = m, y = Eruptions)) +
+  geom_point(color = "darkred") +
+  geom_path(color = "darkred") +
+  labs(title = "Elevation vs Eruptions") +
+  theme_minimal()
+```
+
+## 17. Area Chart
+```{r, fig.height=5, fig.width=5}
+volcano_data %>%
+  mutate(Eruptions = as.numeric(Eruptions)) %>%
+  filter(!is.na(Eruptions)) %>%
+  arrange(Eruptions) %>%
+  mutate(cum_eruptions = cumsum(Eruptions),
+         index = row_number()) %>%
+  ggplot(aes(x = index, y = cum_eruptions)) +
+  geom_area(fill = "darkred", alpha = 0.7) +
+  labs(title = "Cumulative Eruptions Area Chart",
+       x = "Volcano (ordered by eruptions)",
+       y = "Cumulative Eruptions") +
+  theme_minimal()
+```
+
+## 18. Waterfall Chart
+```{r, fig.width=10}
+library(scales)
+
+top_volcanoes <- volcano_data %>%
+  mutate(Eruptions = as.numeric(Eruptions)) %>%
+  top_n(10, Eruptions) %>%
+  arrange(desc(Eruptions)) %>%
+  mutate(
+    Volcano = factor(Volcano, levels = Volcano),  
+    percent = Eruptions/sum(Eruptions)  
+  )
+
+ggplot(top_volcanoes, aes(x = "", y = Eruptions, fill = Volcano)) +
+  geom_bar(stat = "identity", width = 1, color = "white", linewidth = 0.5) +
+  coord_polar(theta = "y") +
+  scale_fill_manual(
+    values = colorRampPalette(c("#7F0000", "red"))(nrow(top_volcanoes))  # Light to dark red
+  ) +
+  geom_text(
+    aes(label = paste0(percent(percent))), 
+    position = position_stack(vjust = 0.5),
+    color = "white", 
+    size = 3,
+    fontface = "bold"
+  ) +
+  labs(
+    title = "Top 10 Volcanoes by Eruptions",
+    subtitle = "Percentage of total eruptions from top 10 volcanoes"
+  ) +
+  theme_void() 
+```
+
+## 19. Bean Plot
+```{r, fig.height=5, fig.width=6}
+library(beanplot)
+beanplot(Eruptions ~ Province, data = volcano_data,
+         main = "Bean Plot of Eruptions by Province",
+         col = c("darkred", "lightcoral"))
+```
+
+## 20. Contour Plot
+```{r, fig.width=6, fig.height=5}
+library(MASS)
+library(viridis)
+colnames(volcano_data) <- trimws(colnames(volcano_data))
+
+volcano_data$m <- as.numeric(volcano_data$m)
+volcano_data$Eruptions <- as.numeric(volcano_data$Eruptions)
+
+clean_data <- volcano_data %>%
+  filter(!is.na(m) & !is.na(Eruptions),
+         is.finite(m) & is.finite(Eruptions))
+
+kde <- kde2d(clean_data$m, clean_data$Eruptions, n = 50)
+
+filled.contour(kde, color.palette = colorRampPalette(c("lightcoral", "darkred")),
+               plot.title = title(main = "Contour Plot of Elevation vs Eruptions"))
+```
+
+## 21. Dumbbell Chart
+```{r, fig.height=5, fig.width=7}
+library(dplyr)
+library(ggplot2)
+library(ggalt)
+
+colnames(volcano_data) <- trimws(colnames(volcano_data))
+volcano_data$m <- as.numeric(volcano_data$m)
+
+cleaned_data <- volcano_data %>%
+  filter(!is.na(m), !is.na(Province))
+
+cleaned_data %>%
+  group_by(Province) %>%
+  summarise(min_elev = min(m, na.rm = TRUE),
+            max_elev = max(m, na.rm = TRUE)) %>%
+  ggplot(aes(x = min_elev, xend = max_elev, y = Province)) +
+  geom_dumbbell(color = "darkred", size = 1.5) +
+  labs(title = "Elevation Range by Province (Dumbbell Chart)",
+       x = "Elevation (m)", y = "Province") +
+  theme_minimal()
+```
+
+## 22. Stem-and-Leaf Plot
+```{r,fig.height=5, fig.width=6}
+volcano_data$Eruptions <- as.numeric(volcano_data$Eruptions)
+hist(volcano_data$Eruptions,
+     breaks = 10,
+     main = "Histogram of Eruption Counts",
+     xlab = "Eruptions",
+     col = "darkred",
+     border = "white")
+```
+
+## 23. Stacked Bar plot
+```{r,fig.height=6, fig.width=6}
+volcano_data %>%
+  ggplot(aes(x = factor(Province), y = Eruptions, fill = Eruptions)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_gradient(low = "lightpink", high = "darkred") +
+  labs(title = "Province vs Eruptions", x = "Province", y = "Eruptions") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+## 24. Pyramid Plot
+```{r,fig.height=5, fig.width=7}
+library(plotrix)
+pyramid.plot(volcano_data$m, volcano_data$Eruptions,
+             labels = volcano_data$Volcano,
+             main = "Elevation-Eruption Pyramid Plot",
+             lxcol = "darkred", rxcol = "darkred")
+```
+
+## 25.Ternary Plot Colored by Eruption Frequency
+```{r}
+library(ggtern)
+
+tern_data <- volcano_data %>%
+  mutate(
+    m = as.numeric(gsub(",", "", m)),
+    ft = as.numeric(gsub(",", "", ft)),
+    Eruptions = as.numeric(Eruptions),
+    Activity = cut(Eruptions, 
+                  breaks = c(-1, 0, 5, 20, Inf),
+                  labels = c("Dormant", "Low", "Moderate", "High"))
+  ) %>%
+  filter(!is.na(m) & !is.na(ft) & !is.na(Eruptions)) %>%
+  mutate(total = m + ft + Eruptions)
+
+ggtern(data = tern_data, 
+       aes(x = m/total, y = ft/total, z = Eruptions/total)) +
+  geom_point(aes(color = Activity, size = Eruptions), alpha = 0.8) +
+  labs(title = "Elevation vs Eruptions (Colored by Activity Level)",
+       x = "Meters", y = "Feet", z = "Eruptions") +
+  theme_rgbw()
+```
